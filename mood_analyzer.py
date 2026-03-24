@@ -1,74 +1,97 @@
-# MoodTunes Music Mood Analyzer
-import spotipy
-from textblob import TextBlob
-from typing import Dict, List, Tuple
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+from typing import Dict, Tuple
 
 class MoodAnalyzer:
-    def __init__(self, spotify_client: spotipy.Spotify):
-        self.spotify = spotify_client
-        self.mood_categories = {
-            'happy': {'valence': (0.7, 1.0), 'energy': (0.6, 1.0)},
-            'sad': {'valence': (0.0, 0.3), 'energy': (0.0, 0.4)},
-            'relaxed': {'valence': (0.4, 0.7), 'energy': (0.0, 0.4)},
-            'energetic': {'valence': (0.5, 1.0), 'energy': (0.7, 1.0)}
+    def __init__(self):
+        try:
+            nltk.data.find('vader_lexicon')
+        except LookupError:
+            nltk.download('vader_lexicon')
+        self.sia = SentimentIntensityAnalyzer()
+        
+        # Define genre mappings based on mood and intensity
+        self.mood_genre_map = {
+            'very_positive': ['Pop', 'Dance', 'Electronic'],
+            'positive': ['Indie Pop', 'Folk', 'Jazz'],
+            'neutral': ['Classical', 'Ambient', 'Lo-fi'],
+            'negative': ['Blues', 'Alternative', 'Indie Rock'],
+            'very_negative': ['Metal', 'Punk', 'Grunge']
         }
 
-    def analyze_text_mood(self, text: str) -> Tuple[str, float]:
-        """Analyze text sentiment and map it to a musical mood category."""
-        analysis = TextBlob(text)
-        sentiment_score = analysis.sentiment.polarity
+    def analyze_mood(self, text: str) -> Tuple[str, float, list]:
+        """
+        Analyzes text to determine mood, intensity, and suggested music genres
         
-        # Map sentiment score to mood category
-        if sentiment_score > 0.5:
-            return ('happy', sentiment_score)
-        elif sentiment_score < -0.3:
-            return ('sad', sentiment_score)
-        elif -0.3 <= sentiment_score <= 0.2:
-            return ('relaxed', sentiment_score)
+        Args:
+            text (str): Input text to analyze
+            
+        Returns:
+            Tuple containing:
+            - mood classification (str)
+            - mood intensity score (float)
+            - list of recommended genres (list)
+        """
+        scores = self.sia.polarity_scores(text)
+        compound_score = scores['compound']
+        
+        # Determine mood category and intensity
+        if compound_score >= 0.5:
+            mood = 'very_positive'
+            intensity = abs(compound_score)
+        elif 0 < compound_score < 0.5:
+            mood = 'positive'
+            intensity = abs(compound_score)
+        elif compound_score == 0:
+            mood = 'neutral'
+            intensity = 0.0
+        elif -0.5 < compound_score < 0:
+            mood = 'negative'
+            intensity = abs(compound_score)
         else:
-            return ('energetic', sentiment_score)
-
-    def get_mood_recommendations(self, mood: str, limit: int = 5) -> List[Dict]:
-        """Get song recommendations based on mood category."""
-        if mood not in self.mood_categories:
-            raise ValueError(f'Invalid mood category: {mood}')
-
-        mood_params = self.mood_categories[mood]
-        
-        recommendations = self.spotify.recommendations(
-            target_valence=(mood_params['valence'][0] + mood_params['valence'][1]) / 2,
-            target_energy=(mood_params['energy'][0] + mood_params['energy'][1]) / 2,
-            limit=limit
-        )
-
-        return [{
-            'name': track['name'],
-            'artist': track['artists'][0]['name'],
-            'uri': track['uri'],
-            'mood_category': mood
-        } for track in recommendations['tracks']]
-
-    def analyze_playlist_mood(self, playlist_id: str) -> Dict[str, float]:
-        """Analyze the overall mood distribution of a playlist."""
-        tracks = self.spotify.playlist_tracks(playlist_id)['items']
-        mood_distribution = {mood: 0 for mood in self.mood_categories.keys()}
-        
-        for track in tracks:
-            features = self.spotify.audio_features(track['track']['uri'])[0]
-            if not features:
-                continue
-                
-            valence = features['valence']
-            energy = features['energy']
+            mood = 'very_negative'
+            intensity = abs(compound_score)
             
-            for mood, params in self.mood_categories.items():
-                if (params['valence'][0] <= valence <= params['valence'][1] and
-                    params['energy'][0] <= energy <= params['energy'][1]):
-                    mood_distribution[mood] += 1
-                    break
+        recommended_genres = self.mood_genre_map[mood]
         
-        total = sum(mood_distribution.values())
-        if total > 0:
-            mood_distribution = {k: v/total for k, v in mood_distribution.items()}
+        return mood, intensity, recommended_genres
+
+    def get_detailed_analysis(self, text: str) -> Dict:
+        """
+        Provides detailed mood analysis including raw sentiment scores
+        
+        Args:
+            text (str): Input text to analyze
             
-        return mood_distribution
+        Returns:
+            Dictionary containing detailed analysis
+        """
+        scores = self.sia.polarity_scores(text)
+        mood, intensity, genres = self.analyze_mood(text)
+        
+        return {
+            'mood': mood,
+            'intensity': intensity,
+            'recommended_genres': genres,
+            'raw_scores': {
+                'positive': scores['pos'],
+                'negative': scores['neg'],
+                'neutral': scores['neu'],
+                'compound': scores['compound']
+            }
+        }
+
+if __name__ == '__main__':
+    analyzer = MoodAnalyzer()
+    
+    # Example usage
+    sample_text = 'I am feeling absolutely amazing today!'
+    mood, intensity, genres = analyzer.analyze_mood(sample_text)
+    print(f'Mood: {mood}')
+    print(f'Intensity: {intensity:.2f}')
+    print(f'Recommended Genres: {genres}')
+    
+    # Detailed analysis
+    detailed = analyzer.get_detailed_analysis(sample_text)
+    print('\nDetailed Analysis:')
+    print(detailed)
