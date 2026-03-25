@@ -1,110 +1,65 @@
-import pandas as pd
-from datetime import datetime
+# MoodTunes Mood Analyzer
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 from textblob import TextBlob
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
 
 class MoodAnalyzer:
-    def __init__(self, spotify_client_id=None, spotify_client_secret=None):
-        self.mood_history = []
-        self.spotify = None
-        if spotify_client_id and spotify_client_secret:
-            self.setup_spotify(spotify_client_id, spotify_client_secret)
-    
-    def setup_spotify(self, client_id, client_secret):
-        auth_manager = SpotifyClientCredentials(
-            client_id=client_id,
-            client_secret=client_secret
-        )
-        self.spotify = spotipy.Spotify(auth_manager=auth_manager)
-    
-    def analyze_mood(self, text):
+    def __init__(self):
+        self.classifier = RandomForestClassifier(n_estimators=100)
+        self.mood_categories = ['happy', 'sad', 'energetic', 'calm', 'anxious']
+        
+    def analyze_text_sentiment(self, text):
+        """Analyze text sentiment using TextBlob and return mood classification"""
         analysis = TextBlob(text)
         
-        # Get polarity (-1 to 1) and subjectivity (0 to 1)
+        # Extract features
         polarity = analysis.sentiment.polarity
         subjectivity = analysis.sentiment.subjectivity
         
-        # Determine mood category
+        # Create feature vector
+        features = np.array([[polarity, subjectivity]])
+        
+        # Map sentiment scores to mood categories
         if polarity > 0.5:
-            mood = 'Energetic'
-        elif polarity > 0:
-            mood = 'Happy'
-        elif polarity > -0.5:
-            mood = 'Mellow'
+            return 'happy'
+        elif polarity < -0.3:
+            return 'sad'
+        elif subjectivity > 0.8:
+            return 'anxious'
+        elif polarity > 0 and subjectivity < 0.4:
+            return 'energetic'
         else:
-            mood = 'Sad'
-            
-        mood_entry = {
-            'date': datetime.now(),
-            'text': text,
-            'polarity': polarity,
-            'subjectivity': subjectivity,
-            'mood': mood
-        }
-        
-        self.mood_history.append(mood_entry)
-        return mood_entry
+            return 'calm'
     
-    def get_song_recommendations(self, mood):
-        if not self.spotify:
-            raise Exception('Spotify credentials not configured')
-            
-        # Map moods to Spotify genres and attributes
-        mood_mapping = {
-            'Energetic': {
-                'genres': ['edm', 'dance', 'power-pop'],
-                'target_energy': 0.8,
-                'target_valence': 0.8
-            },
-            'Happy': {
-                'genres': ['pop', 'happy', 'feel-good'],
-                'target_energy': 0.6,
-                'target_valence': 0.7
-            },
-            'Mellow': {
-                'genres': ['chill', 'ambient', 'indie'],
-                'target_energy': 0.4,
-                'target_valence': 0.5
-            },
-            'Sad': {
-                'genres': ['sad', 'blues', 'rainy-day'],
-                'target_energy': 0.3,
-                'target_valence': 0.3
-            }
+    def get_mood_playlist(self, mood):
+        """Return music recommendations based on mood"""
+        playlists = {
+            'happy': ['upbeat_pop', 'feel_good_hits', 'summer_vibes'],
+            'sad': ['melancholic_ballads', 'acoustic_covers', 'rainy_day'],
+            'energetic': ['workout_hits', 'dance_party', 'power_rock'],
+            'calm': ['ambient_chill', 'peaceful_piano', 'meditation'],
+            'anxious': ['calming_classical', 'nature_sounds', 'gentle_acoustic']
         }
-        
-        mood_params = mood_mapping.get(mood, mood_mapping['Happy'])
-        
-        # Search for recommendations
-        results = self.spotify.recommendations(
-            seed_genres=mood_params['genres'],
-            target_energy=mood_params['target_energy'],
-            target_valence=mood_params['target_valence'],
-            limit=5
-        )
-        
-        recommendations = []
-        for track in results['tracks']:
-            recommendations.append({
-                'name': track['name'],
-                'artist': track['artists'][0]['name'],
-                'url': track['external_urls']['spotify']
-            })
-            
-        return recommendations
+        return playlists.get(mood, [])
     
-    def get_mood_history(self, days=7):
-        df = pd.DataFrame(self.mood_history)
-        df = df.set_index('date')
-        return df.last(f'{days}D')
-    
-    def get_mood_stats(self):
-        df = pd.DataFrame(self.mood_history)
-        stats = {
-            'total_entries': len(df),
-            'mood_distribution': df['mood'].value_counts().to_dict(),
-            'average_polarity': df['polarity'].mean(),
-            'average_subjectivity': df['subjectivity'].mean()
+    def analyze_mood_from_journal(self, journal_text):
+        """Analyze mood from journal entry and return music recommendations"""
+        mood = self.analyze_text_sentiment(journal_text)
+        recommendations = self.get_mood_playlist(mood)
+        
+        return {
+            'detected_mood': mood,
+            'confidence_score': abs(TextBlob(journal_text).sentiment.polarity),
+            'playlist_recommendations': recommendations
         }
-        return stats
+
+    def get_mood_description(self, mood):
+        """Return detailed description of detected mood"""
+        descriptions = {
+            'happy': 'You seem to be in high spirits! Your positivity is shining through.',
+            'sad': 'You appear to be feeling down. Music can help lift your spirits.',
+            'energetic': 'You have high energy levels and seem ready for action!',
+            'calm': 'You are in a balanced and peaceful state of mind.',
+            'anxious': 'You seem to have some worried thoughts. Calming music might help.'
+        }
+        return descriptions.get(mood, 'Unable to determine mood description')
